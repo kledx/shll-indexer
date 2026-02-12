@@ -18,6 +18,8 @@ export default createConfig({
       maxRequestsPerSecond: Number(process.env.MAX_REQUESTS_PER_SECOND ?? 2),
       // Increase polling interval to reduce load (default 1s is too aggressive)
       pollingInterval: 5_000,
+      // Limit block range for eth_getLogs to avoid "limit exceeded" errors
+      ethGetLogsBlockRange: 5,
     },
   },
   contracts: {
