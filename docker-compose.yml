@@ -17,7 +17,7 @@ services:
       - RPC_WAIT_MS=${RPC_WAIT_MS:-1000}
       - RPC_RETRY_COUNT=${RPC_RETRY_COUNT:-10}
       - RPC_RETRY_DELAY=${RPC_RETRY_DELAY:-3000}
-      - ETH_GET_LOGS_BLOCK_RANGE=${ETH_GET_LOGS_BLOCK_RANGE:-2000}
+      - ETH_GET_LOGS_BLOCK_RANGE=${ETH_GET_LOGS_BLOCK_RANGE:-5}
     networks:
       - dokploy-network
 
