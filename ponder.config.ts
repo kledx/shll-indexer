@@ -21,6 +21,7 @@ export default createConfig({
         },
         retryCount: Number(process.env.RPC_RETRY_COUNT ?? 10),
         retryDelay: Number(process.env.RPC_RETRY_DELAY ?? 3000),
+        timeout: 60_000,
       }),
       ethGetLogsBlockRange: Number(process.env.ETH_GET_LOGS_BLOCK_RANGE ?? 2000),
     },
