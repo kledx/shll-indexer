@@ -5,22 +5,10 @@ import { listing, rentalHistory } from "../ponder.schema";
 ponder.on("ListingManager:ListingCreated", async ({ event, context }) => {
     const { listingId, nfa, tokenId, pricePerDay, minDays } = event.args;
 
-    // Try to read agent metadata for the name
-    let agentName = "Unknown Agent";
-    try {
-        const metadata = await context.client.readContract({
-            abi: context.contracts.AgentNFA.abi,
-            address: context.contracts.AgentNFA.address!,
-            functionName: "getAgentMetadata",
-            args: [tokenId],
-        });
-        if (metadata?.persona) {
-            const parsed = JSON.parse(metadata.persona);
-            agentName = parsed.name || parsed.role || "Agent";
-        }
-    } catch {
-        // Metadata read failed, use default
-    }
+    // Use a default name based on tokenId.
+    // Avoid readContract here because BSC Testnet nodes are pruned
+    // and cannot serve eth_call at historical blocks ("missing trie node").
+    const agentName = `Agent #${tokenId}`;
 
     await context.db
         .insert(listing)
