@@ -1,0 +1,18 @@
+# docker-compose.yml for Dokploy deployment
+version: "3.8"
+
+services:
+  shll-indexer:
+    image: ghcr.io/kledx/shll-indexer:latest
+    restart: unless-stopped
+    ports:
+      - "42069:42069"
+    environment:
+      - DATABASE_URL=postgresql://shll_ponder_user:uaikotc1x22iwcl1t@infrastructure-base-ufkucm/shll_ponder
+      - PONDER_RPC_URL_97=https://bnb-testnet.g.alchemy.com/v2/CVaHvQCguUQe5C-mRLHWe5qzcCmPkA1T
+    networks:
+      - dokploy-network
+
+networks:
+  dokploy-network:
+    external: true
