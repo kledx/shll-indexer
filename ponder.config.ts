@@ -1,32 +1,23 @@
 import { createConfig } from "ponder";
-import { http } from "viem";
 
 import { ListingManagerAbi } from "./abis/ListingManagerAbi";
 import { AgentNFAAbi } from "./abis/AgentNFAAbi";
 
-console.log("DEBUG: PONDER_RPC_URL_97 =", process.env.PONDER_RPC_URL_97);
-console.log("DEBUG: RPC_BATCH_SIZE =", process.env.RPC_BATCH_SIZE);
-console.log("DEBUG: RPC_WAIT_MS =", process.env.RPC_WAIT_MS);
+const rpcUrl = process.env.PONDER_RPC_URL_97 ?? "https://bsctestapi.terminet.io/rpc";
 
-// Try Alchemy again with strict batching to avoid query errors
-// Note: Alchemy free tier on BSC Testnet might still fail on old history
+console.log("DEBUG: PONDER_RPC_URL_97 =", rpcUrl);
+console.log("DEBUG: MAX_RPS =", process.env.MAX_REQUESTS_PER_SECOND);
+
 export default createConfig({
   chains: {
     bscTestnet: {
       id: 97,
-      rpc: http(process.env.PONDER_RPC_URL_97 ?? "https://bnb-testnet.g.alchemy.com/v2/CVaHvQCguUQe5C-mRLHWe5qzcCmPkA1T", {
-        batch: {
-          batchSize: Number(process.env.RPC_BATCH_SIZE ?? 50),
-          wait: Number(process.env.RPC_WAIT_MS ?? 1000),
-        },
-        retryCount: Number(process.env.RPC_RETRY_COUNT ?? 10),
-        retryDelay: Number(process.env.RPC_RETRY_DELAY ?? 3000),
-        timeout: 60_000,
-        fetchOptions: {
-          signal: AbortSignal.timeout(60_000),
-        },
-      }),
-      ethGetLogsBlockRange: Number(process.env.ETH_GET_LOGS_BLOCK_RANGE ?? 2000),
+      // Pass RPC as string — let Ponder manage the transport internally
+      rpc: rpcUrl,
+      // Throttle requests to avoid rate limits on free-tier RPC nodes
+      maxRequestsPerSecond: Number(process.env.MAX_REQUESTS_PER_SECOND ?? 2),
+      // Increase polling interval to reduce load (default 1s is too aggressive)
+      pollingInterval: 5_000,
     },
   },
   contracts: {
