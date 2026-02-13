@@ -41,12 +41,32 @@ function isTimeoutError(error: unknown) {
   return /timeout|timed out|ETIMEDOUT|UND_ERR_CONNECT_TIMEOUT|Headers Timeout Error/i.test(msg);
 }
 
+function getErrorCode(error: unknown): number | string | undefined {
+  if (typeof error === "object" && error !== null && "code" in (error as Record<string, unknown>)) {
+    const code = (error as Record<string, unknown>).code;
+    if (typeof code === "number" || typeof code === "string") return code;
+  }
+
+  const msg = error instanceof Error ? error.message : String(error);
+  const match = msg.match(/"code"\s*:\s*(-?\d+)/);
+  if (match?.[1]) {
+    const parsed = Number(match[1]);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+}
+
 function isRetriableError(error: unknown) {
   const msg = error instanceof Error ? error.message : String(error);
+  const code = getErrorCode(error);
+  const retriableCodes = new Set<number | string>([19, -32005, "19", "-32005"]);
   return (
+    retriableCodes.has(code ?? "") ||
     isRateLimitError(error) ||
     isTimeoutError(error) ||
-    /ECONNRESET|ENOTFOUND|EAI_AGAIN|socket hang up|503|504|temporarily unavailable/i.test(msg)
+    /ECONNRESET|ENOTFOUND|EAI_AGAIN|socket hang up|503|504|temporarily unavailable|temporary internal error|please retry/i.test(
+      msg,
+    )
   );
 }
 
@@ -101,7 +121,7 @@ function createRateLimitedRpcTransport(urls: string[], options: RpcTransportOpti
         lastLogsRequestAt = Date.now();
       }
 
-      const attemptLimit = Math.max(1, Math.min(clients.length, maxAttempts));
+      const attemptLimit = Math.max(1, maxAttempts);
       let lastError: unknown;
       let attempts = 0;
       const orderedIndexes = Array.from({ length: clients.length }, (_, offset) => (nextIndex + offset) % clients.length);
@@ -109,12 +129,16 @@ function createRateLimitedRpcTransport(urls: string[], options: RpcTransportOpti
       const available = orderedIndexes.filter((idx) => endpointState[idx]!.cooldownUntil <= now);
       const deferred = orderedIndexes.filter((idx) => endpointState[idx]!.cooldownUntil > now);
       const candidates = [...available, ...deferred];
+      const usableCandidates = candidates.length > 0 ? candidates : orderedIndexes;
 
-      for (const idx of candidates) {
-        if (attempts >= attemptLimit) break;
+      while (attempts < attemptLimit) {
+        const idx = usableCandidates[attempts % usableCandidates.length] ?? orderedIndexes[0] ?? 0;
         const state = endpointState[idx]!;
         const waitMs = state.cooldownUntil - Date.now();
-        if (waitMs > 250) continue;
+        if (waitMs > 250) {
+          attempts += 1;
+          continue;
+        }
         if (waitMs > 0) await sleep(waitMs);
         attempts += 1;
 
@@ -134,10 +158,14 @@ function createRateLimitedRpcTransport(urls: string[], options: RpcTransportOpti
             state.failures = 0;
             state.cooldownUntil = Date.now() + cooldownMs;
           }
+
+          if (attempts < attemptLimit) {
+            await sleep(Math.min(200 * attempts, 500));
+          }
         }
       }
 
-      if (attempts === 0) {
+      if (attempts === 0 && orderedIndexes.length > 0) {
         const idx = orderedIndexes[0] ?? 0;
         const client = clients[idx] as { request: (params: unknown) => Promise<unknown> };
         try {
