@@ -9,13 +9,23 @@ const rpcCandidates = rpcEnv
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
-const maxRequestsPerSecond = Number(process.env.MAX_REQUESTS_PER_SECOND ?? 1);
-const minIntervalMs = Number(
-  process.env.RPC_MIN_INTERVAL_MS ?? Math.ceil(1000 / Math.max(maxRequestsPerSecond, 0.1)),
+
+function readNumberEnv(value: string | undefined, fallback: number, min: number, max: number) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(parsed, min), max);
+}
+
+const maxRequestsPerSecond = Math.floor(readNumberEnv(process.env.MAX_REQUESTS_PER_SECOND, 1, 1, 1_000));
+const minIntervalMs = Math.floor(readNumberEnv(process.env.RPC_MIN_INTERVAL_MS, 0, 0, 60_000));
+const rpcTimeoutMs = Math.floor(readNumberEnv(process.env.RPC_TIMEOUT_MS, 5_000, 1_000, 120_000));
+const rpcFailoverMaxAttempts = Math.floor(readNumberEnv(process.env.RPC_FAILOVER_MAX_ATTEMPTS, 2, 1, 5));
+const rpcFailoverCooldownMs = Math.floor(readNumberEnv(process.env.RPC_FAILOVER_COOLDOWN_MS, 30_000, 1_000, 300_000));
+const rpcFailoverFailureThreshold = Math.floor(
+  readNumberEnv(process.env.RPC_FAILOVER_FAILURE_THRESHOLD, 2, 1, 20),
 );
-const rpcTimeoutMs = Number(process.env.RPC_TIMEOUT_MS ?? 5_000);
-const pollingInterval = Number(process.env.POLLING_INTERVAL_MS ?? 10_000);
-const ethGetLogsBlockRange = Number(process.env.ETH_GET_LOGS_BLOCK_RANGE ?? 1);
+const pollingInterval = Math.floor(readNumberEnv(process.env.POLLING_INTERVAL_MS, 10_000, 1_000, 60_000));
+const ethGetLogsBlockRange = Math.floor(readNumberEnv(process.env.ETH_GET_LOGS_BLOCK_RANGE, 1, 1, 5_000));
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -26,12 +36,39 @@ function isRateLimitError(error: unknown) {
   return /429|Too Many Requests|limit exceeded|LimitExceededRpcError|rate limit/i.test(msg);
 }
 
-function createRateLimitedRpcTransport(urls: string[], requestIntervalMs: number, timeoutMs: number): Transport {
+function isTimeoutError(error: unknown) {
+  const msg = error instanceof Error ? error.message : String(error);
+  return /timeout|timed out|ETIMEDOUT|UND_ERR_CONNECT_TIMEOUT|Headers Timeout Error/i.test(msg);
+}
+
+function isRetriableError(error: unknown) {
+  const msg = error instanceof Error ? error.message : String(error);
+  return (
+    isRateLimitError(error) ||
+    isTimeoutError(error) ||
+    /ECONNRESET|ENOTFOUND|EAI_AGAIN|socket hang up|503|504|temporarily unavailable/i.test(msg)
+  );
+}
+
+type EndpointState = {
+  cooldownUntil: number;
+  failures: number;
+};
+
+type RpcTransportOptions = {
+  requestIntervalMs: number;
+  timeoutMs: number;
+  maxAttempts: number;
+  cooldownMs: number;
+  failureThreshold: number;
+};
+
+function createRateLimitedRpcTransport(urls: string[], options: RpcTransportOptions): Transport {
   if (urls.length === 0) {
     throw new Error("No RPC endpoints configured for bscTestnet");
   }
 
-  let logsQueue: Promise<void> = Promise.resolve();
+  const { requestIntervalMs, timeoutMs, maxAttempts, cooldownMs, failureThreshold } = options;
   let lastLogsRequestAt = 0;
   let nextIndex = 0;
 
@@ -45,31 +82,78 @@ function createRateLimitedRpcTransport(urls: string[], requestIntervalMs: number
       }),
     );
     const template = clients[0] as Record<string, unknown>;
+    const endpointState: EndpointState[] = clients.map(() => ({ cooldownUntil: 0, failures: 0 }));
 
-    const sendWithFailover = async (args: unknown, throttleLogs: boolean) => {
-      if (throttleLogs) {
+    const sendWithFailover = async (args: unknown) => {
+      const method =
+        typeof args === "object" &&
+        args !== null &&
+        "method" in (args as Record<string, unknown>) &&
+        typeof (args as Record<string, unknown>).method === "string"
+          ? ((args as Record<string, unknown>).method as string)
+          : "";
+
+      if (method === "eth_getLogs" && requestIntervalMs > 0) {
         const elapsed = Date.now() - lastLogsRequestAt;
         if (elapsed < requestIntervalMs) {
-          await sleep(requestIntervalMs - elapsed);
+          await sleep(Math.min(requestIntervalMs - elapsed, 250));
         }
         lastLogsRequestAt = Date.now();
       }
 
-      const start = nextIndex;
+      const attemptLimit = Math.max(1, Math.min(clients.length, maxAttempts));
       let lastError: unknown;
+      let attempts = 0;
+      const orderedIndexes = Array.from({ length: clients.length }, (_, offset) => (nextIndex + offset) % clients.length);
+      const now = Date.now();
+      const available = orderedIndexes.filter((idx) => endpointState[idx]!.cooldownUntil <= now);
+      const deferred = orderedIndexes.filter((idx) => endpointState[idx]!.cooldownUntil > now);
+      const candidates = [...available, ...deferred];
 
-      for (let offset = 0; offset < clients.length; offset++) {
-        const idx = (start + offset) % clients.length;
+      for (const idx of candidates) {
+        if (attempts >= attemptLimit) break;
+        const state = endpointState[idx]!;
+        const waitMs = state.cooldownUntil - Date.now();
+        if (waitMs > 250) continue;
+        if (waitMs > 0) await sleep(waitMs);
+        attempts += 1;
+
         const client = clients[idx] as { request: (params: unknown) => Promise<unknown> };
         try {
           const result = await client.request(args);
+          state.cooldownUntil = 0;
+          state.failures = 0;
           nextIndex = (idx + 1) % clients.length;
           return result;
         } catch (error) {
           lastError = error;
-          const msg = error instanceof Error ? error.message : String(error);
-          const isTimeout = /timeout|timed out/i.test(msg);
-          if ((!isRateLimitError(error) && !isTimeout) || offset === clients.length - 1) throw error;
+          if (!isRetriableError(error)) throw error;
+
+          state.failures += 1;
+          if (state.failures >= failureThreshold) {
+            state.failures = 0;
+            state.cooldownUntil = Date.now() + cooldownMs;
+          }
+        }
+      }
+
+      if (attempts === 0) {
+        const idx = orderedIndexes[0] ?? 0;
+        const client = clients[idx] as { request: (params: unknown) => Promise<unknown> };
+        try {
+          const result = await client.request(args);
+          endpointState[idx]!.cooldownUntil = 0;
+          endpointState[idx]!.failures = 0;
+          nextIndex = (idx + 1) % clients.length;
+          return result;
+        } catch (error) {
+          if (!isRetriableError(error)) throw error;
+          endpointState[idx]!.failures += 1;
+          if (endpointState[idx]!.failures >= failureThreshold) {
+            endpointState[idx]!.failures = 0;
+            endpointState[idx]!.cooldownUntil = Date.now() + cooldownMs;
+          }
+          lastError = error;
         }
       }
 
@@ -78,40 +162,26 @@ function createRateLimitedRpcTransport(urls: string[], requestIntervalMs: number
 
     return {
       ...template,
-      request: async (args: unknown) => {
-        const method =
-          typeof args === "object" &&
-          args !== null &&
-          "method" in (args as Record<string, unknown>) &&
-          typeof (args as Record<string, unknown>).method === "string"
-            ? ((args as Record<string, unknown>).method as string)
-            : "";
-
-        // Only serialize & throttle eth_getLogs. Other methods bypass the queue.
-        if (method !== "eth_getLogs") {
-          return sendWithFailover(args, false);
-        }
-
-        const pending = logsQueue.then(
-          () => sendWithFailover(args, true),
-          () => sendWithFailover(args, true),
-        );
-        logsQueue = pending.then(
-          () => undefined,
-          () => undefined,
-        );
-        return pending;
-      },
+      request: async (args: unknown) => sendWithFailover(args),
     } as unknown as ReturnType<Transport>;
   }) as Transport;
 }
 
-const rpc = createRateLimitedRpcTransport(rpcCandidates, minIntervalMs, rpcTimeoutMs);
+const rpc = createRateLimitedRpcTransport(rpcCandidates, {
+  requestIntervalMs: minIntervalMs,
+  timeoutMs: rpcTimeoutMs,
+  maxAttempts: rpcFailoverMaxAttempts,
+  cooldownMs: rpcFailoverCooldownMs,
+  failureThreshold: rpcFailoverFailureThreshold,
+});
 
 console.log("DEBUG: PONDER_RPC_URL_97 =", rpcCandidates);
 console.log("DEBUG: MAX_RPS =", maxRequestsPerSecond);
 console.log("DEBUG: RPC_MIN_INTERVAL_MS =", minIntervalMs);
 console.log("DEBUG: RPC_TIMEOUT_MS =", rpcTimeoutMs);
+console.log("DEBUG: RPC_FAILOVER_MAX_ATTEMPTS =", rpcFailoverMaxAttempts);
+console.log("DEBUG: RPC_FAILOVER_COOLDOWN_MS =", rpcFailoverCooldownMs);
+console.log("DEBUG: RPC_FAILOVER_FAILURE_THRESHOLD =", rpcFailoverFailureThreshold);
 console.log("DEBUG: POLLING_INTERVAL_MS =", pollingInterval);
 console.log("DEBUG: ETH_GET_LOGS_BLOCK_RANGE =", ethGetLogsBlockRange);
 
@@ -119,7 +189,7 @@ export default createConfig({
   chains: {
     bscTestnet: {
       id: 97,
-      // Custom transport: serialized requests + min-interval throttling + multi-RPC failover.
+      // Custom transport: fast failover + endpoint cooldown (no global eth_getLogs queue).
       rpc,
       // Throttle and shrink log windows for strict public RPC providers
       maxRequestsPerSecond,
