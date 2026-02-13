@@ -9,6 +9,9 @@ const rpcCandidates = rpcEnv
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
+const listingManagerAddress =
+  process.env.LISTING_MANAGER_ADDRESS_97 ?? "0x3d8D7e13cC40b2D3bA4AB8Df64D8B2Fd44A98921";
+const agentNfaAddress = process.env.AGENT_NFA_ADDRESS_97 ?? "0x827E342A9835536c03dCDC369626e1a981299f30";
 
 function readNumberEnv(value: string | undefined, fallback: number, min: number, max: number) {
   const parsed = Number(value);
@@ -26,6 +29,9 @@ const rpcFailoverFailureThreshold = Math.floor(
 );
 const pollingInterval = Math.floor(readNumberEnv(process.env.POLLING_INTERVAL_MS, 10_000, 1_000, 60_000));
 const ethGetLogsBlockRange = Math.floor(readNumberEnv(process.env.ETH_GET_LOGS_BLOCK_RANGE, 1, 1, 5_000));
+const contractStartBlock = Math.floor(
+  readNumberEnv(process.env.CONTRACT_START_BLOCK_97, 90_131_714, 0, Number.MAX_SAFE_INTEGER),
+);
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -208,6 +214,9 @@ console.log("DEBUG: RPC_FAILOVER_COOLDOWN_MS =", rpcFailoverCooldownMs);
 console.log("DEBUG: RPC_FAILOVER_FAILURE_THRESHOLD =", rpcFailoverFailureThreshold);
 console.log("DEBUG: POLLING_INTERVAL_MS =", pollingInterval);
 console.log("DEBUG: ETH_GET_LOGS_BLOCK_RANGE =", ethGetLogsBlockRange);
+console.log("DEBUG: LISTING_MANAGER_ADDRESS_97 =", listingManagerAddress);
+console.log("DEBUG: AGENT_NFA_ADDRESS_97 =", agentNfaAddress);
+console.log("DEBUG: CONTRACT_START_BLOCK_97 =", contractStartBlock);
 
 export default createConfig({
   chains: {
@@ -225,14 +234,14 @@ export default createConfig({
     ListingManager: {
       chain: "bscTestnet",
       abi: ListingManagerAbi,
-      address: "0x18ad506d40f730ced90a14a9ceb0770ad4c2b3fd",
-      startBlock: 89980765,
+      address: listingManagerAddress as `0x${string}`,
+      startBlock: contractStartBlock,
     },
     AgentNFA: {
       chain: "bscTestnet",
       abi: AgentNFAAbi,
-      address: "0x4c0bcc8a43da7ec63d792fe7d3c932b1d9d88181",
-      startBlock: 89980765,
+      address: agentNfaAddress as `0x${string}`,
+      startBlock: contractStartBlock,
     },
   },
 });
