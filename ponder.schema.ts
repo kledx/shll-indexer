@@ -33,11 +33,16 @@ export const agent = onchainTable("agent", (t) => ({
   tokenId: t.bigint().notNull(),
   owner: t.hex().notNull(),
   account: t.hex().notNull(),
-  policyId: t.hex().notNull(),
+  policyId: t.hex(),                        // V3 compat, V4 no longer uses this
+  agentType: t.text().default("unknown"),   // "dca" | "llm_trader" | "llm_defi" | "hot_token"
   // V1.3 Rent-to-Mint
   isTemplate: t.boolean().notNull().default(false),
   templateId: t.bigint(), // non-null only for instances
+  // BAP-578 pause support
+  paused: t.boolean().default(false),
   createdAt: t.bigint().notNull(),
+}), (table) => ({
+  typeIdx: index().on(table.agentType),
 }));
 
 // Rental history records
@@ -74,32 +79,35 @@ export const executionHistory = onchainTable("execution_history", (t) => ({
   txIdx: index().on(table.txHash),
 }));
 
-// V1.4: Policy Registry tables
-export const policy = onchainTable("policy", (t) => ({
-  id: t.text().primaryKey(), // policyId-version
-  policyId: t.integer().notNull(),
-  version: t.integer().notNull(),
-  maxSlippageBps: t.integer(),
-  maxTradeLimit: t.bigint(),
-  maxDailyLimit: t.bigint(),
-  allowedTokenGroups: t.text(), // JSON string array
-  allowedDexGroups: t.text(), // JSON string array
-  receiverMustBeVault: t.boolean(),
-  forbidInfiniteApprove: t.boolean(),
-  isFrozen: t.boolean().notNull().default(false),
-  createdAt: t.bigint().notNull(),
+// ═══════════════════════════════════════════════════════
+// V3.0: PolicyGuardV4 — Composable Policy Plugin tables
+// ═══════════════════════════════════════════════════════
+
+// Agent-bound policy plugin assignments (per-instance)
+export const policyPlugin = onchainTable("policy_plugin", (t) => ({
+  id: t.text().primaryKey(),          // "{instanceId}-{policyAddress}"
+  instanceId: t.bigint().notNull(),
+  policyAddress: t.hex().notNull(),
+  policyType: t.text().notNull(),     // "token_whitelist" | "spending_limit" | etc.
+  isCustom: t.boolean().notNull(),    // true = renter-configured, false = template-inherited
+  addedAt: t.bigint().notNull(),
+}), (table) => ({
+  instanceIdx: index().on(table.instanceId),
+  typeIdx: index().on(table.policyType),
 }));
 
-export const actionRule = onchainTable("action_rule", (t) => ({
-  id: t.text().primaryKey(), // policyId-version-target-selector
-  policyId: t.integer().notNull(),
-  version: t.integer().notNull(),
-  target: t.hex().notNull(),
-  selector: t.hex().notNull(),
-  moduleMask: t.bigint().notNull(),
+// Template policy compositions (owner-defined ceilings)
+export const templatePolicy = onchainTable("template_policy", (t) => ({
+  id: t.text().primaryKey(),          // "{templateId}-{policyAddress}"
+  templateId: t.hex().notNull(),      // bytes32
+  policyAddress: t.hex().notNull(),
+  policyType: t.text().notNull(),
+  addedAt: t.bigint().notNull(),
+}), (table) => ({
+  templateIdx: index().on(table.templateId),
 }));
 
-// V1.4: Group Registry tables
+// V1.4: Group Registry tables (retained: DEX/Token whitelists still in use)
 export const groupMember = onchainTable("group_member", (t) => ({
   id: t.text().primaryKey(), // type-groupId-address
   type: t.text().notNull(), // "token" | "dex"
@@ -109,24 +117,7 @@ export const groupMember = onchainTable("group_member", (t) => ({
   updatedAt: t.bigint().notNull(),
 }));
 
-// V1.4: Instance Config details
-export const instanceConfig = onchainTable("instance_config", (t) => ({
-  id: t.bigint().primaryKey(), // instance tokenId
-  policyId: t.integer().notNull(),
-  version: t.integer().notNull(),
-  paramsPacked: t.hex().notNull(),
-  paramsHash: t.hex().notNull(),
-  // Decoded params for easy querying
-  slippageBps: t.integer().notNull(),
-  tradeLimit: t.bigint().notNull(),
-  dailyLimit: t.bigint().notNull(),
-  tokenGroupId: t.integer().notNull(),
-  dexGroupId: t.integer().notNull(),
-  riskTier: t.integer().notNull(),
-  updatedAt: t.bigint().notNull(),
-}));
-
-// V1.4: Spend tracking from PolicyGuardV2
+// V1.4: Spend tracking (retained: SpendingLimitPolicy still uses this)
 export const spendHistory = onchainTable("spend_history", (t) => ({
   id: t.text().primaryKey(), // txHash-logIndex
   instanceId: t.bigint().notNull(),

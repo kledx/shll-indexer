@@ -27,7 +27,7 @@ app.use("/graphql", graphql({ db, schema }));
 
 // --- Custom REST API endpoints ---
 
-// GET /api/listings - All active listings
+// GET /api/listings - All active listings (enriched with agent data)
 app.get("/api/listings", async (c) => {
     const listings = await db
         .select()
@@ -40,22 +40,32 @@ app.get("/api/listings", async (c) => {
         (l) => l.nfa.toLowerCase() !== ZERO_ADDRESS && l.isTemplate === true
     );
 
+    // Batch-lookup agentType from agent table
+    const agents = await db.select().from(schema.agent);
+    const agentMap = new Map(agents.map((a) => [a.tokenId.toString(), a]));
+
     return c.json({
-        items: filtered.map((l) => ({
-            ...l,
-            // Serialize bigints as strings for JSON compatibility
-            tokenId: l.tokenId.toString(),
-            pricePerDay: l.pricePerDay.toString(),
-            expires: l.expires?.toString() ?? null,
-            createdAt: l.createdAt.toString(),
-            updatedAt: l.updatedAt.toString(),
-        })),
+        items: filtered.map((l) => {
+            const agent = agentMap.get(l.tokenId.toString());
+            return {
+                ...l,
+                // Serialize bigints as strings for JSON compatibility
+                tokenId: l.tokenId.toString(),
+                pricePerDay: l.pricePerDay.toString(),
+                expires: l.expires?.toString() ?? null,
+                createdAt: l.createdAt.toString(),
+                updatedAt: l.updatedAt.toString(),
+                // Enriched fields from agent table
+                agentType: agent?.agentType ?? null,
+            };
+        }),
         count: filtered.length,
     });
 });
 
-// GET /api/agents - All minted agents
+// GET /api/agents - All minted agents (supports ?type= filter)
 app.get("/api/agents", async (c) => {
+    const typeFilter = c.req.query("type");
     const agents = await db
         .select()
         .from(schema.agent)
@@ -69,14 +79,19 @@ app.get("/api/agents", async (c) => {
         .where(eq(schema.listing.isTemplate, true));
     const templateTokenIds = new Set(templateListings.map((l) => l.tokenId.toString()));
 
+    // Apply agentType filter if provided
+    const filtered = typeFilter
+        ? agents.filter((a) => a.agentType === typeFilter)
+        : agents;
+
     return c.json({
-        items: agents.map((a) => ({
+        items: filtered.map((a) => ({
             ...a,
             tokenId: a.tokenId.toString(),
             isTemplate: a.isTemplate || templateTokenIds.has(a.tokenId.toString()),
             createdAt: a.createdAt.toString(),
         })),
-        count: agents.length,
+        count: filtered.length,
     });
 });
 
@@ -194,10 +209,10 @@ app.get("/api/ready", async (c) => {
         );
     }
 });
-// --- V1.4 API endpoints ---
+// --- V3.0 API endpoints ---
 
-// GET /api/instance-config/:tokenId - Instance configuration (decoded params)
-app.get("/api/instance-config/:tokenId", async (c) => {
+// GET /api/agents/:tokenId/policies - Policy plugins for an agent instance
+app.get("/api/agents/:tokenId/policies", async (c) => {
     const tokenIdRaw = c.req.param("tokenId");
     if (!/^\d+$/.test(tokenIdRaw)) {
         return c.json({ error: "invalid tokenId" }, 400);
@@ -205,69 +220,71 @@ app.get("/api/instance-config/:tokenId", async (c) => {
 
     const rows = await db
         .select()
-        .from(schema.instanceConfig)
-        .where(eq(schema.instanceConfig.id, BigInt(tokenIdRaw)))
-        .limit(1);
+        .from(schema.policyPlugin)
+        .where(eq(schema.policyPlugin.instanceId, BigInt(tokenIdRaw)));
 
-    if (rows.length === 0) {
-        return c.json({ found: false, tokenId: tokenIdRaw }, 200);
-    }
-
-    const cfg = rows[0]!;
     return c.json({
-        found: true,
         tokenId: tokenIdRaw,
-        policyId: cfg.policyId,
-        version: cfg.version,
-        paramsHash: cfg.paramsHash,
-        paramsPacked: cfg.paramsPacked,
-        slippageBps: cfg.slippageBps,
-        tradeLimit: cfg.tradeLimit.toString(),
-        dailyLimit: cfg.dailyLimit.toString(),
-        tokenGroupId: cfg.tokenGroupId,
-        dexGroupId: cfg.dexGroupId,
-        riskTier: cfg.riskTier,
-        updatedAt: cfg.updatedAt.toString(),
+        items: rows.map((r) => ({
+            ...r,
+            instanceId: r.instanceId.toString(),
+            addedAt: r.addedAt.toString(),
+        })),
+        count: rows.length,
     });
 });
 
-// GET /api/policies/:policyId/:version - Policy details
-app.get("/api/policies/:policyId/:version", async (c) => {
-    const policyIdRaw = c.req.param("policyId");
-    const versionRaw = c.req.param("version");
-    if (!/^\d+$/.test(policyIdRaw) || !/^\d+$/.test(versionRaw)) {
-        return c.json({ error: "invalid policyId or version" }, 400);
+// GET /api/agents/:tokenId/summary - Aggregated execution stats
+app.get("/api/agents/:tokenId/summary", async (c) => {
+    const tokenIdRaw = c.req.param("tokenId");
+    if (!/^\d+$/.test(tokenIdRaw)) {
+        return c.json({ error: "invalid tokenId" }, 400);
     }
 
-    const compositeId = `${policyIdRaw}-${versionRaw}`;
-    const rows = await db
+    const tokenId = BigInt(tokenIdRaw);
+    const executions = await db
         .select()
-        .from(schema.policy)
-        .where(eq(schema.policy.id, compositeId))
-        .limit(1);
+        .from(schema.executionHistory)
+        .where(eq(schema.executionHistory.tokenId, tokenId))
+        .orderBy(desc(schema.executionHistory.timestamp));
 
-    if (rows.length === 0) {
-        return c.json({ found: false, policyId: policyIdRaw, version: versionRaw }, 200);
-    }
+    const total = executions.length;
+    const success = executions.filter((e) => e.success).length;
 
-    const p = rows[0]!;
     return c.json({
-        found: true,
-        policyId: p.policyId,
-        version: p.version,
-        maxSlippageBps: p.maxSlippageBps,
-        maxTradeLimit: p.maxTradeLimit?.toString() ?? null,
-        maxDailyLimit: p.maxDailyLimit?.toString() ?? null,
-        allowedTokenGroups: p.allowedTokenGroups ? JSON.parse(p.allowedTokenGroups) : [],
-        allowedDexGroups: p.allowedDexGroups ? JSON.parse(p.allowedDexGroups) : [],
-        receiverMustBeVault: p.receiverMustBeVault,
-        forbidInfiniteApprove: p.forbidInfiniteApprove,
-        isFrozen: p.isFrozen,
-        createdAt: p.createdAt.toString(),
+        tokenId: tokenIdRaw,
+        totalExecutions: total,
+        successRate: total > 0 ? Math.round((success / total) * 10000) / 100 : 0,
+        successCount: success,
+        failCount: total - success,
+        lastExecution: executions[0]?.timestamp?.toString() ?? null,
     });
 });
 
-// GET /api/groups/:type/:groupId - Group members (token/dex)
+// GET /api/stats - Global agent/listing statistics
+app.get("/api/stats", async (c) => {
+    const agents = await db.select().from(schema.agent);
+    const listings = await db
+        .select()
+        .from(schema.listing)
+        .where(eq(schema.listing.active, true));
+
+    // Group agents by agentType
+    const byType: Record<string, number> = {};
+    for (const a of agents) {
+        const t = a.agentType ?? "unknown";
+        byType[t] = (byType[t] ?? 0) + 1;
+    }
+
+    return c.json({
+        totalAgents: agents.length,
+        totalTemplates: agents.filter((a) => a.isTemplate).length,
+        activeListings: listings.length,
+        agentsByType: byType,
+    });
+});
+
+// GET /api/groups/:type/:groupId - Group members (token/dex) — retained from V1.4
 app.get("/api/groups/:type/:groupId", async (c) => {
     const type = c.req.param("type");
     const groupIdRaw = c.req.param("groupId");
@@ -278,16 +295,13 @@ app.get("/api/groups/:type/:groupId", async (c) => {
         return c.json({ error: "invalid groupId" }, 400);
     }
 
-    // Build prefix for composite ID matching: "type-groupId-"
-    const prefix = `${type}-${groupIdRaw}-`;
     const allMembers = await db
         .select()
         .from(schema.groupMember)
         .where(eq(schema.groupMember.type, type));
 
-    // Filter by groupId (since Ponder may not support compound where easily)
     const filtered = allMembers.filter(
-        (m) => m.groupId === Number(groupIdRaw)
+        (m) => m.groupId === Number(groupIdRaw),
     );
 
     return c.json({

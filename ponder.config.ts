@@ -3,7 +3,7 @@ import { http, type Transport } from "viem";
 
 import { ListingManagerAbi } from "./abis/ListingManagerAbi";
 import { AgentNFAAbi } from "./abis/AgentNFAAbi";
-import { PolicyGuardV3Abi } from "./abis/PolicyGuardV3Abi";
+import { PolicyGuardV4Abi } from "./abis/PolicyGuardV4Abi";
 
 const rpcEnv = process.env.PONDER_RPC_URLS_97 ?? process.env.PONDER_RPC_URL_97 ?? "https://bsctestapi.terminet.io/rpc";
 const rpcCandidates = rpcEnv
@@ -13,8 +13,8 @@ const rpcCandidates = rpcEnv
 const listingManagerAddress =
   process.env.LISTING_MANAGER_ADDRESS_97 ?? "0x8c5B5ed82e2fAFfd3cEA3F22d7CA56d033ba658d";
 const agentNfaAddress = process.env.AGENT_NFA_ADDRESS_97 ?? "0x636557BFe696221bd05B78b04FB3d091A322D1dE";
-// V1.5 merged contract address
-const policyGuardV3Address = process.env.POLICY_GUARD_V3_ADDRESS_97 ?? "0x0000000000000000000000000000000000000000";
+// V3.0 PolicyGuardV4 composable policy engine (env placeholder until deployed)
+const policyGuardV4Address = process.env.POLICY_GUARD_V4_ADDRESS_97 ?? "0x0000000000000000000000000000000000000000";
 
 function readNumberEnv(value: string | undefined, fallback: number, min: number, max: number) {
   const parsed = Number(value);
@@ -219,7 +219,7 @@ console.log("DEBUG: POLLING_INTERVAL_MS =", pollingInterval);
 console.log("DEBUG: ETH_GET_LOGS_BLOCK_RANGE =", ethGetLogsBlockRange);
 console.log("DEBUG: LISTING_MANAGER_ADDRESS_97 =", listingManagerAddress);
 console.log("DEBUG: AGENT_NFA_ADDRESS_97 =", agentNfaAddress);
-console.log("DEBUG: CONTRACT_START_BLOCK_97 =", contractStartBlock);
+console.log("DEBUG: POLICY_GUARD_V4_ADDRESS_97 =", policyGuardV4Address);
 
 export default createConfig({
   chains: {
@@ -246,10 +246,10 @@ export default createConfig({
       address: agentNfaAddress as `0x${string}`,
       startBlock: contractStartBlock,
     },
-    PolicyGuardV3: {
+    PolicyGuardV4: {
       chain: "bscTestnet",
-      abi: PolicyGuardV3Abi,
-      address: policyGuardV3Address as `0x${string}`,
+      abi: PolicyGuardV4Abi,
+      address: policyGuardV4Address as `0x${string}`,
       startBlock: contractStartBlock,
     },
   },

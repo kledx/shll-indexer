@@ -109,4 +109,20 @@ export const AgentNFAAbi = [
         outputs: [{ name: "", type: "uint256" }],
         stateMutability: "view",
     },
+    // V3.0: Agent type + pause events
+    {
+        type: "event",
+        name: "AgentTypeSet",
+        inputs: [
+            { name: "tokenId", type: "uint256", indexed: true },
+            { name: "agentType", type: "bytes32", indexed: false },
+        ],
+    },
+    {
+        type: "function",
+        name: "agentTypeOf",
+        inputs: [{ name: "tokenId", type: "uint256" }],
+        outputs: [{ name: "", type: "bytes32" }],
+        stateMutability: "view",
+    },
 ] as const;

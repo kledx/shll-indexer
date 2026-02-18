@@ -71,3 +71,20 @@ ponder.on("AgentNFA:InstanceMinted", async ({ event, context }) => {
             templateId,
         });
 });
+
+// V3.0: When an agent's type is set or updated
+ponder.on("AgentNFA:AgentTypeSet", async ({ event, context }) => {
+    const { tokenId, agentType } = event.args;
+    // Decode bytes32 → trimmed ASCII string (e.g. "dca", "llm_trader")
+    const hex = (agentType as string).replace(/0+$/, "");
+    let decoded = "unknown";
+    if (hex.length > 2) {
+        const buf = Buffer.from(hex.slice(2), "hex");
+        decoded = buf.toString("utf8").replace(/\0/g, "");
+    }
+
+    await context.db
+        .update(agent, { id: tokenId.toString() })
+        .set({ agentType: decoded });
+});
+
