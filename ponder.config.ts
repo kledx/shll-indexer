@@ -5,7 +5,13 @@ import { ListingManagerAbi } from "./abis/ListingManagerAbi";
 import { AgentNFAAbi } from "./abis/AgentNFAAbi";
 import { PolicyGuardV4Abi } from "./abis/PolicyGuardV4Abi";
 
-const rpcEnv = process.env.PONDER_RPC_URLS_97 ?? process.env.PONDER_RPC_URL_97 ?? "https://bsctestapi.terminet.io/rpc";
+// Multiple BSC Testnet RPCs for failover — public endpoints are unreliable
+const defaultRpcs = [
+  "https://data-seed-prebsc-1-s1.bnbchain.org:8545",
+  "https://data-seed-prebsc-2-s1.bnbchain.org:8545",
+  "https://bsc-testnet-rpc.publicnode.com",
+].join(",");
+const rpcEnv = process.env.PONDER_RPC_URLS_97 ?? process.env.PONDER_RPC_URL_97 ?? defaultRpcs;
 const rpcCandidates = rpcEnv
   .split(",")
   .map((s) => s.trim())
@@ -24,8 +30,8 @@ function readNumberEnv(value: string | undefined, fallback: number, min: number,
 
 const maxRequestsPerSecond = Math.floor(readNumberEnv(process.env.MAX_REQUESTS_PER_SECOND, 1, 1, 1_000));
 const minIntervalMs = Math.floor(readNumberEnv(process.env.RPC_MIN_INTERVAL_MS, 0, 0, 60_000));
-const rpcTimeoutMs = Math.floor(readNumberEnv(process.env.RPC_TIMEOUT_MS, 5_000, 1_000, 120_000));
-const rpcFailoverMaxAttempts = Math.floor(readNumberEnv(process.env.RPC_FAILOVER_MAX_ATTEMPTS, 2, 1, 5));
+const rpcTimeoutMs = Math.floor(readNumberEnv(process.env.RPC_TIMEOUT_MS, 15_000, 1_000, 120_000));
+const rpcFailoverMaxAttempts = Math.floor(readNumberEnv(process.env.RPC_FAILOVER_MAX_ATTEMPTS, 5, 1, 10));
 const rpcFailoverCooldownMs = Math.floor(readNumberEnv(process.env.RPC_FAILOVER_COOLDOWN_MS, 30_000, 1_000, 300_000));
 const rpcFailoverFailureThreshold = Math.floor(
   readNumberEnv(process.env.RPC_FAILOVER_FAILURE_THRESHOLD, 2, 1, 20),
@@ -65,6 +71,11 @@ function getErrorCode(error: unknown): number | string | undefined {
   return undefined;
 }
 
+function isBlockNotFoundError(error: unknown) {
+  const msg = error instanceof Error ? error.message : String(error);
+  return /BlockNotFoundError|Block.*could not be found|block not found/i.test(msg);
+}
+
 function isRetriableError(error: unknown) {
   const msg = error instanceof Error ? error.message : String(error);
   const code = getErrorCode(error);
@@ -73,6 +84,7 @@ function isRetriableError(error: unknown) {
     retriableCodes.has(code ?? "") ||
     isRateLimitError(error) ||
     isTimeoutError(error) ||
+    isBlockNotFoundError(error) ||
     /ECONNRESET|ENOTFOUND|EAI_AGAIN|socket hang up|503|504|temporarily unavailable|temporary internal error|please retry/i.test(
       msg,
     )
