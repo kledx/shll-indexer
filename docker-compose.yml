@@ -11,15 +11,18 @@ services:
     environment:
       - DATABASE_URL=${DATABASE_URL:-postgresql://user:password@host:5432/dbname}
       - DATABASE_SCHEMA=${DATABASE_SCHEMA:-ponder}
-      - PONDER_RPC_URL_97=${PONDER_RPC_URL_97:-https://bsc-testnet-rpc.example.com}
-      # Optional failover list (comma-separated). If set, takes precedence over PONDER_RPC_URL_97.
-      # Example: https://alchemy...,https://data-seed-prebsc-1-s1.bnbchain.org:8545
+
+      # ─── RPC ───
+      - PONDER_RPC_URL_97=${PONDER_RPC_URL_97:-https://data-seed-prebsc-1-s1.bnbchain.org:8545}
       - PONDER_RPC_URLS_97=${PONDER_RPC_URLS_97:-}
-      - LISTING_MANAGER_ADDRESS_97=${LISTING_MANAGER_ADDRESS_97:-0x5AE99B80E78D237C839b8Adad819AdAb34E00f55}
-      - AGENT_NFA_ADDRESS_97=${AGENT_NFA_ADDRESS_97:-0x882503744A91f90D3b64AC52a6d0BA42549f3FF8}
-      - CONTRACT_START_BLOCK_97=${CONTRACT_START_BLOCK_97:-90773067}
-      - POLICY_GUARD_V3_ADDRESS_97=${POLICY_GUARD_V3_ADDRESS_97:-0x998C6b8683307842e79f59E96c9D3C5444769d3A}
-      # RPC Tuning (used by ponder.config.ts)
+
+      # ─── Contract Addresses (V3.1) ───
+      - AGENT_NFA_ADDRESS_97=${AGENT_NFA_ADDRESS_97:-0xbB5059ad07bBd2d10d2e67fF842ce2D5e55eCD82}
+      - LISTING_MANAGER_ADDRESS_97=${LISTING_MANAGER_ADDRESS_97:-0x58edca3cd175a3e306e9b16125fec75483681cf6}
+      - POLICY_GUARD_V4_ADDRESS_97=${POLICY_GUARD_V4_ADDRESS_97:-0x31Bd83f2C3A41154F88296c145E36A64E32729A5}
+      - CONTRACT_START_BLOCK_97=${CONTRACT_START_BLOCK_97:-91078300}
+
+      # ─── RPC Tuning ───
       - MAX_REQUESTS_PER_SECOND=${MAX_REQUESTS_PER_SECOND:-1}
       - RPC_MIN_INTERVAL_MS=${RPC_MIN_INTERVAL_MS:-0}
       - RPC_TIMEOUT_MS=${RPC_TIMEOUT_MS:-5000}
@@ -28,6 +31,7 @@ services:
       - RPC_FAILOVER_FAILURE_THRESHOLD=${RPC_FAILOVER_FAILURE_THRESHOLD:-2}
       - POLLING_INTERVAL_MS=${POLLING_INTERVAL_MS:-10000}
       - ETH_GET_LOGS_BLOCK_RANGE=${ETH_GET_LOGS_BLOCK_RANGE:-1}
+
     networks:
       - dokploy-network
 
