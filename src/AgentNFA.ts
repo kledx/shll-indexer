@@ -74,7 +74,11 @@ ponder.on("AgentNFA:InstanceMinted", async ({ event, context }) => {
 
 // V3.0: When an agent's type is set or updated
 // V3.0 uses keccak256("dca") hashes — auto-build lookup from plain strings
-// To add a new type: just append to this array ↓
+// ┌─────────────────────────────────────────────────────────┐
+// │  SYNC REQUIRED: This list must match AgentNFA.sol       │
+// │  type constants (TYPE_DCA, TYPE_LLM_TRADER, etc.)       │
+// │  → repos/shll/src/AgentNFA.sol                          │
+// └─────────────────────────────────────────────────────────┘
 import { keccak256, toHex } from "viem";
 
 const KNOWN_TYPES = ["dca", "llm_trader", "hot_token", "llm_defi"];
