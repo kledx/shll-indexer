@@ -174,10 +174,14 @@ function createRateLimitedRpcTransport(urls: string[], options: RpcTransportOpti
         lastLogsRequestAt = Date.now();
       }
 
+      // Round-robin: advance starting index BEFORE selecting candidates
+      const startIdx = nextIndex;
+      nextIndex = (nextIndex + 1) % clients.length;
+
       const attemptLimit = Math.max(1, maxAttempts);
       let lastError: unknown;
       let attempts = 0;
-      const orderedIndexes = Array.from({ length: clients.length }, (_, offset) => (nextIndex + offset) % clients.length);
+      const orderedIndexes = Array.from({ length: clients.length }, (_, offset) => (startIdx + offset) % clients.length);
       const now = Date.now();
       const available = orderedIndexes.filter((idx) => endpointState[idx]!.cooldownUntil <= now);
       const deferred = orderedIndexes.filter((idx) => endpointState[idx]!.cooldownUntil > now);
@@ -196,7 +200,6 @@ function createRateLimitedRpcTransport(urls: string[], options: RpcTransportOpti
           const result = await client.request(args);
           state.cooldownUntil = 0;
           state.failures = 0;
-          nextIndex = (idx + 1) % clients.length;
           return result;
         } catch (error) {
           lastError = error;
