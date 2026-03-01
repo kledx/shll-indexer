@@ -10,13 +10,13 @@ yarn-error.log*
 # Misc
 .DS_Store
 
-# Env files
-.env*.local
+# Env fil.env
+.env.*
+!.env.example
+.env.mainnet
 
 # Ponder
 /generated/
 /.ponder/
-.env
-
 # Mainnet env (contains sensitive config)
 .env.mainnet
