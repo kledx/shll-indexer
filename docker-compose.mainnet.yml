@@ -11,7 +11,7 @@ services:
       - "42070:42069"
     environment:
       - DATABASE_URL=${DATABASE_URL:-postgresql://user:password@host:5432/dbname}
-      - DATABASE_SCHEMA=${DATABASE_SCHEMA:-shll_indexer_mainnet}
+      - DATABASE_SCHEMA=${DATABASE_SCHEMA:-shll_indexer_mainnet_v2}
       - CHAIN_ID=${CHAIN_ID:-56}
 
       # ─── BSC Mainnet (56) ───
@@ -20,6 +20,7 @@ services:
       - AGENT_NFA_ADDRESS_56=${AGENT_NFA_ADDRESS_56}
       - LISTING_MANAGER_ADDRESS_56=${LISTING_MANAGER_ADDRESS_56}
       - POLICY_GUARD_V4_ADDRESS_56=${POLICY_GUARD_V4_ADDRESS_56}
+      - LEARNING_MODULE_ADDRESS_56=${LEARNING_MODULE_ADDRESS_56:-0x0000000000000000000000000000000000000000}
       - CONTRACT_START_BLOCK_56=${CONTRACT_START_BLOCK_56}
 
       # ─── RPC Tuning ───
