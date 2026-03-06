@@ -98,9 +98,15 @@ app.get("/api/agents", async (c) => {
 
     return c.json({
         items: filtered.map((a) => ({
-            ...a,
             tokenId: a.tokenId.toString(),
+            owner: a.owner,
+            account: a.account,
+            agentType: a.agentType,
             isTemplate: a.isTemplate || templateTokenIds.has(a.tokenId.toString()),
+            paused: a.paused,
+            learningEnabled: a.learningEnabled,
+            learningRoot: a.learningRoot,
+            learningLeaves: a.learningLeaves?.toString() ?? "0",
             createdAt: a.createdAt.toString(),
         })),
         count: filtered.length,
