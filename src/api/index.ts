@@ -450,7 +450,7 @@ app.get("/api/agents/:tokenId/learning/history", async (c) => {
 // Query params: agentType, learning (true/false), template (true/false), limit, offset
 app.get("/api/discover", async (c) => {
     const agentTypeFilter = c.req.query("agentType");
-    const learningFilter = c.req.query("learning");
+    const learningFilter = c.req.query("learningEnabled") ?? c.req.query("learning");
     const templateFilter = c.req.query("template");
     const limitRaw = c.req.query("limit");
     const offsetRaw = c.req.query("offset");
