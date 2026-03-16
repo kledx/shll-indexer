@@ -87,7 +87,7 @@ ponder.on("AgentNFA:InstanceMinted", async ({ event, context }) => {
 // └─────────────────────────────────────────────────────────┘
 import { keccak256, toHex } from "viem";
 
-const KNOWN_TYPES = ["dca", "llm_trader", "hot_token", "llm_defi"];
+const KNOWN_TYPES = ["dca", "llm_trader", "hot_token", "llm_defi", "meme_trader", "meme_hunter"];
 const AGENT_TYPE_MAP: Record<string, string> = Object.fromEntries(
     KNOWN_TYPES.map((t) => [keccak256(toHex(t)), t])
 );
